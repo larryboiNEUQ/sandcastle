@@ -1,6 +1,6 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect } from "effect";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -2394,15 +2394,13 @@ describe("InitService scaffold", () => {
           templateName,
         });
 
-        const noSandboxEntries = await import("node:fs/promises").then(
-          ({ readdir }) => readdir(join(noSandboxDir, ".sandcastle")),
+        const noSandboxEntries = await readdir(
+          join(noSandboxDir, ".sandcastle"),
         );
         expect(noSandboxEntries).not.toContain("Dockerfile");
         expect(noSandboxEntries).not.toContain("Containerfile");
 
-        const dockerEntries = await import("node:fs/promises").then(
-          ({ readdir }) => readdir(join(dockerDir, ".sandcastle")),
-        );
+        const dockerEntries = await readdir(join(dockerDir, ".sandcastle"));
         expect([...noSandboxEntries].sort()).toEqual(
           dockerEntries.filter((entry) => entry !== "Dockerfile").sort(),
         );

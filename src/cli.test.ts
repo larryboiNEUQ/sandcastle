@@ -290,6 +290,23 @@ describe("sandcastle CLI", () => {
     }
   });
 
+  it("init without --sandbox fails fast with a clear non-interactive error message", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "cli-host-"));
+    await initRepo(hostDir);
+
+    try {
+      await runCli(
+        "init --agent claude-code --template blank --issue-tracker beads",
+        hostDir,
+      );
+      expect.fail("Expected command to fail");
+    } catch (err: unknown) {
+      const { stdout, stderr } = err as { stdout: string; stderr: string };
+      const output = stdout + stderr;
+      expect(output).toContain("--sandbox is required in non-interactive mode");
+    }
+  });
+
   it("init --issue-tracker github-issues without --create-label fails fast in non-interactive mode", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "cli-host-"));
     await initRepo(hostDir);
