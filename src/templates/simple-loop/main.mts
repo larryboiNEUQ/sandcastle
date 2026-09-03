@@ -9,7 +9,7 @@ await run({
   // A name for this run, shown as a prefix in log output.
   name: "worker",
 
-  // Sandbox provider — runs the agent inside an isolated container.
+  // Sandbox provider — controls where the agent runs.
   sandbox: docker(),
 
   // The agent provider. Pass a model string to claudeCode() — sonnet balances
@@ -17,8 +17,8 @@ await run({
   // problems, or claude-haiku-4-5-20251001 for speed.
   agent: claudeCode("claude-sonnet-4-6"),
 
-  // Path to the prompt file. Shell expressions inside are evaluated inside the
-  // sandbox at the start of each iteration, so the agent always sees fresh data.
+  // Path to the prompt file. Shell expressions are evaluated through the selected
+  // provider at the start of each iteration, so the agent always sees fresh data.
   promptFile: "./.sandcastle/prompt.md",
 
   // Maximum number of iterations (agent invocations) to run in a session.
