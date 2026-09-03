@@ -39,7 +39,9 @@ import { VERSION } from "./version.js";
 // --- Shared options ---
 
 const imageNameOption = Options.text("image-name").pipe(
-  Options.withDescription("Docker image name"),
+  Options.withDescription(
+    "Sandbox image name (ignored with --sandbox no-sandbox)",
+  ),
   Options.optional,
 );
 
@@ -103,7 +105,9 @@ const initModelOption = Options.text("model").pipe(
 );
 
 const sandboxOption = Options.text("sandbox").pipe(
-  Options.withDescription("Sandbox provider to use (e.g. docker, podman)"),
+  Options.withDescription(
+    "Sandbox provider to use (e.g. docker, podman, no-sandbox)",
+  ),
   Options.optional,
 );
 
@@ -129,7 +133,7 @@ const createLabelOption = Options.choice("create-label", [
 
 const buildImageOption = Options.choice("build-image", ["true", "false"]).pipe(
   Options.withDescription(
-    "Whether to build the sandbox image now (ignored when --issue-tracker custom is selected)",
+    "Whether to build the sandbox image now (ignored with --sandbox no-sandbox or --issue-tracker custom)",
   ),
   Options.optional,
 );
@@ -473,13 +477,18 @@ const initCommand = Command.make(
         }
       }
 
-      // Prompt user before building image. The custom issue tracker scaffolds
-      // an intentionally unfinished Dockerfile (the install block is a TODO),
-      // so there is nothing valid to build yet — skip the build prompt entirely
-      // (and silently ignore --build-image) and let the next steps point the
-      // user at the setup doc.
+      // Prompt before building an image only for image-backed providers. The
+      // No-sandbox provider runs directly on the Host and silently ignores the
+      // image flags. A custom issue tracker also skips the build until its
+      // generated setup instructions have been completed.
       const providerLabel = selectedSandboxProvider.label;
-      if (selectedIssueTracker.name === "custom") {
+      const image = selectedSandboxProvider.image;
+      if (!image) {
+        yield* d.status(
+          "Init complete! Agents will run directly on the host; no sandbox image is required.",
+          "success",
+        );
+      } else if (selectedIssueTracker.name === "custom") {
         yield* d.status(
           "Init complete! Your custom issue tracker isn't configured yet — see the steps below before building.",
           "success",
@@ -494,7 +503,7 @@ const initCommand = Command.make(
 
         if (shouldBuild) {
           const containerfileDir = join(cwd, CONFIG_DIR);
-          if (selectedSandboxProvider.name === "podman") {
+          if (image.cliNamespace === "podman") {
             yield* d.spinner(
               `Building ${providerLabel} image '${imageName}'...`,
               podmanBuildImage(imageName, containerfileDir),
@@ -513,7 +522,7 @@ const initCommand = Command.make(
           );
         } else {
           yield* d.status(
-            `Init complete! Run \`sandcastle ${selectedSandboxProvider.cliNamespace} build-image\` to build the ${providerLabel} image later.`,
+            `Init complete! Run \`sandcastle ${image.cliNamespace} build-image\` to build the ${providerLabel} image later.`,
             "success",
           );
         }
@@ -526,6 +535,7 @@ const initCommand = Command.make(
         selectedIssueTracker,
         selectedAgent,
         packageManager,
+        selectedSandboxProvider,
       );
       for (const [i, line] of nextSteps.entries()) {
         yield* d.text(i === 0 ? line : styleText("dim", line));

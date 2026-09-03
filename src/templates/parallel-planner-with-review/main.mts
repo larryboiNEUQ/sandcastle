@@ -43,15 +43,14 @@ const planSchema = z.object({
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
 const MAX_ITERATIONS = 10;
 
-// Hooks run inside the sandbox before the agent starts each iteration.
-// npm install ensures the sandbox always has fresh dependencies.
+// Hooks run through the selected provider before each agent starts.
+// npm install ensures the working directory has fresh dependencies.
 const hooks = {
   sandbox: { onSandboxReady: [{ command: "npm install" }] },
 };
 
-// Copy node_modules from the host into the worktree before each sandbox
-// starts. Avoids a full npm install from scratch; the hook above handles
-// platform-specific binaries and any packages added since the last copy.
+// Copy node_modules into the worktree before each run to avoid a full install.
+// The hook above handles platform-specific binaries and newly added packages.
 const copyToWorktree = ["node_modules"];
 
 // ---------------------------------------------------------------------------

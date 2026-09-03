@@ -1,5 +1,5 @@
 import { exec } from "node:child_process";
-import { mkdtemp, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -27,7 +27,7 @@ const commitFile = async (
 const cliPath = join(import.meta.dirname, "..", "dist", "main.js");
 
 const runCli = (args: string, cwd: string) =>
-  execAsync(`node ${cliPath} ${args}`, { cwd });
+  execAsync(`node "${cliPath}" ${args}`, { cwd });
 
 describe("sandcastle CLI", () => {
   it("shows help with --help flag", async () => {
@@ -83,9 +83,10 @@ describe("sandcastle CLI", () => {
     expect(stdout).toContain("--model");
   });
 
-  it("init --help exposes --sandbox flag", async () => {
+  it("init --help exposes all sandbox choices", async () => {
     const { stdout } = await runCli("init --help", process.cwd());
     expect(stdout).toContain("--sandbox");
+    expect(stdout).toContain("no-sandbox");
   });
 
   it("init --sandbox nonexistent produces error listing available providers", async () => {
@@ -101,6 +102,7 @@ describe("sandcastle CLI", () => {
       expect(output).toContain("nonexistent");
       expect(output).toContain("docker");
       expect(output).toContain("podman");
+      expect(output).toContain("no-sandbox");
     }
   });
 
@@ -241,6 +243,36 @@ describe("sandcastle CLI", () => {
     const entries = await readdir(join(hostDir, ".sandcastle"));
     expect(entries).toContain("Dockerfile");
     expect(entries).toContain("prompt.md");
+  });
+
+  it("init with no-sandbox scaffolds without image flags or container files", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "cli-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { stdout } = await runCli(
+      "init --agent pi --template blank --sandbox no-sandbox --issue-tracker beads --build-image true --image-name should-not-build",
+      hostDir,
+    );
+
+    expect(stdout).toContain("run directly on the host");
+    expect(stdout).toContain("no sandbox image is required");
+    expect(stdout).not.toContain("should-not-build");
+    const entries = await readdir(join(hostDir, ".sandcastle"));
+    expect(entries).toContain("main.mts");
+    expect(entries).not.toContain("Dockerfile");
+    expect(entries).not.toContain("Containerfile");
+
+    const main = await readFile(
+      join(hostDir, ".sandcastle", "main.mts"),
+      "utf-8",
+    );
+    expect(main).toContain(
+      'import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox"',
+    );
+    expect(main).toContain('pi("claude-sonnet-4-6")');
+    expect(main).toContain("sandbox: noSandbox()");
+    expect(main).not.toContain("claudeCode");
   });
 
   it("init without --agent fails fast with a clear non-interactive error message", async () => {

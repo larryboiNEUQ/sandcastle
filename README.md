@@ -14,15 +14,16 @@ A TypeScript library for orchestrating AI coding agents in isolated sandboxes:
 2. Sandcastle handles sandboxing the agent with a configurable branch strategy.
 3. The commits made on the branches get merged back.
 
-Sandcastle is provider-agnostic — it ships with built-in providers for Docker, Podman, and Vercel, and you can create your own. Great for parallelizing multiple AFK agents, creating review pipelines, or even just orchestrating your own agents.
+Sandcastle is provider-agnostic — it ships with built-in providers for Docker, Podman, Vercel, and explicit Host execution through the No-sandbox provider, and you can create your own. Great for parallelizing multiple AFK agents, creating review pipelines, or even just orchestrating your own agents.
 
 ## Prerequisites
 
 - [Git](https://git-scm.com/)
-- A sandbox provider — Sandcastle needs an isolated environment to run agents in. Built-in options:
-  - [Docker Desktop](https://www.docker.com/) — most common for local development
+- A sandbox provider. Built-in options:
+  - [Docker Desktop](https://www.docker.com/) — most common for isolated development
   - [Podman](https://podman.io/) — rootless alternative to Docker
   - [Vercel](https://vercel.com/) — cloud-based Firecracker microVMs via `@vercel/sandbox`
+  - No-sandbox — runs the Agent directly on the Host without an isolation boundary; requires the selected Agent and issue-tracker CLIs to be installed and authenticated on the Host
   - Or [create your own](#custom-sandbox-providers) using `createBindMountSandboxProvider` or `createIsolatedSandboxProvider`
 
 ## Quick start
@@ -58,7 +59,7 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
 await run({
   agent: claudeCode("claude-opus-4-8"),
-  sandbox: docker(), // or podman(), vercel(), or your own provider
+  sandbox: docker(), // or podman(), vercel(), noSandbox(), or your own provider
   promptFile: ".sandcastle/prompt.md",
 });
 ```
@@ -749,7 +750,7 @@ try {
 
 ### Templates
 
-`sandcastle init` prompts you to choose a sandbox provider (Docker or Podman), an issue tracker (GitHub Issues, Beads, or Custom), and a template, which scaffolds a ready-to-use prompt and `main.mts` suited to a specific workflow. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Choosing **Custom** scaffolds the project in a deliberately broken-until-configured state plus a `.sandcastle/SETUP_ISSUE_TRACKER.md` prompt you feed to your coding agent, which wires up your own tracker by editing the scaffolded files in place. Five templates are available:
+`sandcastle init` prompts you to choose a sandbox provider (Docker, Podman, or no-sandbox), an issue tracker (GitHub Issues, Beads, or Custom), and a template, which scaffolds a ready-to-use prompt and `main.mts` suited to a specific workflow. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Choosing **Custom** scaffolds the project in a deliberately broken-until-configured state plus a `.sandcastle/SETUP_ISSUE_TRACKER.md` prompt you feed to your coding agent, which wires up your own tracker by editing the scaffolded files in place. Five templates are available:
 
 | Template                       | Description                                                               |
 | ------------------------------ | ------------------------------------------------------------------------- |
@@ -765,33 +766,35 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 ### `sandcastle init`
 
-Scaffolds the `.sandcastle/` config directory and builds the container image. This is the first command you run in a new repo. You choose a sandbox provider (Docker or Podman) during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
+Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. You explicitly choose Docker, Podman, or the No-sandbox provider during init. Docker writes a `Dockerfile`; Podman writes a `Containerfile`; No-sandbox writes neither and runs the Agent directly on the Host without an image build step.
 
 Init detects your host package manager (npm, pnpm, yarn, or bun) from a `packageManager` field or lockfile, defaulting to npm. Templates whose `main` file imports a host dependency — the planner templates import [Zod](https://zod.dev) for their `<plan>` output schema — prompt you to install it with that package manager when it isn't already in your `package.json`, so the first `npx tsx .sandcastle/main.ts` doesn't fail with `ERR_MODULE_NOT_FOUND`.
 
 Every interactive prompt has a paired `--flag` so the entire init can run non-interactively (e.g. in CI or a scripted setup). When stdin is not a TTY and a required flag is missing, init fails fast with a clear error rather than wedging on a prompt.
 
-| Option                    | Required | Default                      | Description                                                                                                    |
-| ------------------------- | -------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `--image-name`            | No       | `sandcastle:<repo-dir-name>` | Docker image name                                                                                              |
-| `--agent`                 | No       | Interactive prompt           | Agent to use (`claude-code`, `pi`, `codex`, `cursor`, `opencode`, `copilot`)                                   |
-| `--model`                 | No       | Agent's default model        | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default                                           |
-| `--sandbox`               | No       | Interactive prompt           | Sandbox provider to use (`docker`, `podman`)                                                                   |
-| `--template`              | No       | Interactive prompt           | Template to scaffold (e.g. `blank`, `simple-loop`)                                                             |
-| `--issue-tracker`         | No       | Interactive prompt           | Issue tracker to use (`github-issues`, `beads`, `custom`)                                                      |
-| `--create-label`          | No       | Interactive prompt           | `true` / `false` — whether to create the `Sandcastle` GitHub label (only with `--issue-tracker github-issues`) |
-| `--build-image`           | No       | Interactive prompt           | `true` / `false` — whether to build the sandbox image now (silently ignored with `--issue-tracker custom`)     |
-| `--install-template-deps` | No       | Interactive prompt           | `true` / `false` — whether to install template host deps (e.g. `zod` for the planner templates)                |
+| Option                    | Required | Default                      | Description                                                                                                                |
+| ------------------------- | -------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--image-name`            | No       | `sandcastle:<repo-dir-name>` | Sandbox image name; ignored with `--sandbox no-sandbox`                                                                    |
+| `--agent`                 | No       | Interactive prompt           | Agent to use (`claude-code`, `pi`, `codex`, `cursor`, `opencode`, `copilot`)                                               |
+| `--model`                 | No       | Agent's default model        | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default                                                       |
+| `--sandbox`               | No       | Interactive prompt           | Sandbox provider to use (`docker`, `podman`, `no-sandbox`)                                                                 |
+| `--template`              | No       | Interactive prompt           | Template to scaffold (e.g. `blank`, `simple-loop`)                                                                         |
+| `--issue-tracker`         | No       | Interactive prompt           | Issue tracker to use (`github-issues`, `beads`, `custom`)                                                                  |
+| `--create-label`          | No       | Interactive prompt           | `true` / `false` — whether to create the `Sandcastle` GitHub label (only with `--issue-tracker github-issues`)             |
+| `--build-image`           | No       | Interactive prompt           | `true` / `false` — whether to build the sandbox image now; ignored with `--sandbox no-sandbox` or `--issue-tracker custom` |
+| `--install-template-deps` | No       | Interactive prompt           | `true` / `false` — whether to install template host dependencies (e.g. `zod` for the planner templates)                    |
 
-Creates the following files:
+Creates the following files for image-backed providers:
 
 ```
 .sandcastle/
-├── Dockerfile      # Sandbox environment (customize as needed)
+├── Dockerfile      # Docker only; Podman uses Containerfile
 ├── prompt.md       # Agent instructions
 ├── .env.example    # Token placeholders
 └── .gitignore      # Ignores .env, logs/
 ```
+
+With `--sandbox no-sandbox`, the same config is generated without a `Dockerfile` or `Containerfile`. The selected Agent and issue-tracker CLIs must already be installed and authenticated on the Host. **This mode provides no isolation:** Agent commands, Sandbox hooks, and Prompt shell expressions execute with your user account's Host access, and a Worktree is only a Git change-management boundary. Use No-sandbox only with code and prompts you trust.
 
 Errors if `.sandcastle/` already exists to prevent overwriting customizations.
 

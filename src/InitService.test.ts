@@ -8,6 +8,7 @@ import {
   scaffold,
   getNextStepsLines,
   getAgent,
+  listAgents,
   listTemplates,
   listIssueTrackers,
   getIssueTracker,
@@ -788,6 +789,27 @@ describe("InitService scaffold", () => {
       const joined = lines.join("\n");
       expect(joined.toLowerCase()).toContain("host");
       expect(joined).toContain(getAgent("opencode")!.setupCommand);
+    });
+
+    it("no-sandbox next steps describe Host execution and its trust boundary", () => {
+      const provider = getSandboxProvider("no-sandbox")!;
+      for (const template of ["blank", "simple-loop"]) {
+        const lines = getNextStepsLines(
+          template,
+          "main.mts",
+          ghIssues,
+          piAgent,
+          "npm",
+          provider,
+        ).join("\n");
+        expect(lines).toContain("directly on the Host");
+        expect(lines).toContain("installed and authenticated on the Host");
+        expect(lines).toContain("Sandbox hooks");
+        expect(lines).toContain("Prompt shell expressions");
+        expect(lines).toContain("no Sandbox isolation boundary");
+        expect(lines).not.toContain("build-image");
+        expect(lines).not.toContain("sandbox image");
+      }
     });
   });
 
@@ -1606,6 +1628,24 @@ describe("InitService scaffold", () => {
       expect(setup).not.toContain("sandcastle docker build-image");
     });
 
+    it("custom SETUP doc uses host instructions for no-sandbox", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "simple-loop",
+        issueTracker: customManager,
+        sandboxProvider: getSandboxProvider("no-sandbox"),
+      });
+
+      const setup = await readFile(
+        join(dir, ".sandcastle", "SETUP_ISSUE_TRACKER.md"),
+        "utf-8",
+      );
+      expect(setup).toContain("installed, authenticated, and available");
+      expect(setup).toContain("Run your **list** command on the Host");
+      expect(setup).not.toContain("Dockerfile / Containerfile");
+      expect(setup).not.toContain("build-image");
+    });
+
     it("non-custom issue trackers do not scaffold SETUP_ISSUE_TRACKER.md", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
@@ -2294,6 +2334,7 @@ describe("InitService scaffold", () => {
   describe("sandbox provider", () => {
     const dockerProvider = getSandboxProvider("docker")!;
     const podmanProvider = getSandboxProvider("podman")!;
+    const noSandboxProvider = getSandboxProvider("no-sandbox")!;
 
     it("selecting docker writes Dockerfile to .sandcastle/", async () => {
       const dir = await makeDir();
@@ -2338,6 +2379,126 @@ describe("InitService scaffold", () => {
         access(join(dir, ".sandcastle", "Containerfile")),
       ).rejects.toThrow();
     });
+
+    it.each(listTemplates().map((template) => [template.name]))(
+      "selecting no-sandbox preserves the %s template except for its provider",
+      async (templateName) => {
+        const noSandboxDir = await makeDir();
+        const dockerDir = await makeDir();
+        const noSandboxResult = await runScaffold(noSandboxDir, {
+          sandboxProvider: noSandboxProvider,
+          templateName,
+        });
+        const dockerResult = await runScaffold(dockerDir, {
+          sandboxProvider: dockerProvider,
+          templateName,
+        });
+
+        const noSandboxEntries = await import("node:fs/promises").then(
+          ({ readdir }) => readdir(join(noSandboxDir, ".sandcastle")),
+        );
+        expect(noSandboxEntries).not.toContain("Dockerfile");
+        expect(noSandboxEntries).not.toContain("Containerfile");
+
+        const dockerEntries = await import("node:fs/promises").then(
+          ({ readdir }) => readdir(join(dockerDir, ".sandcastle")),
+        );
+        expect([...noSandboxEntries].sort()).toEqual(
+          dockerEntries.filter((entry) => entry !== "Dockerfile").sort(),
+        );
+        for (const entry of noSandboxEntries) {
+          if (entry === noSandboxResult.mainFilename) continue;
+          const [noSandboxContent, dockerContent] = await Promise.all([
+            readFile(join(noSandboxDir, ".sandcastle", entry), "utf-8"),
+            readFile(join(dockerDir, ".sandcastle", entry), "utf-8"),
+          ]);
+          expect(noSandboxContent).toBe(dockerContent);
+        }
+
+        const noSandboxMain = await readFile(
+          join(noSandboxDir, ".sandcastle", noSandboxResult.mainFilename),
+          "utf-8",
+        );
+        const dockerMain = await readFile(
+          join(dockerDir, ".sandcastle", dockerResult.mainFilename),
+          "utf-8",
+        );
+        expect(noSandboxMain).toContain(
+          'import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox"',
+        );
+        expect(noSandboxMain).not.toContain("docker");
+        expect(noSandboxMain.match(/\bnoSandbox\(\)/g)).toHaveLength(
+          dockerMain.match(/\bdocker\(\)/g)?.length ?? 0,
+        );
+
+        const normalizedMain = noSandboxMain
+          .replace(
+            "@ai-hero/sandcastle/sandboxes/no-sandbox",
+            "@ai-hero/sandcastle/sandboxes/docker",
+          )
+          .replace(/\bnoSandbox\b/g, "docker");
+        expect(normalizedMain).toBe(dockerMain);
+      },
+    );
+
+    it.each(listAgents().map((agent) => [agent.name]))(
+      "preserves the %s Agent and an explicit model with no-sandbox",
+      async (agentName) => {
+        const agent = getAgent(agentName)!;
+        const model = `test-model-${agentName}`;
+        const dir = await makeDir();
+        await runScaffold(dir, {
+          agent,
+          model,
+          sandboxProvider: noSandboxProvider,
+          templateName: "blank",
+        });
+
+        const main = await readFile(
+          join(dir, ".sandcastle", "main.mts"),
+          "utf-8",
+        );
+        const envExample = await readFile(
+          join(dir, ".sandcastle", ".env.example"),
+          "utf-8",
+        );
+        expect(main).toContain(`${agent.factoryImport}("${model}")`);
+        expect(main).toContain("sandbox: noSandbox()");
+        expect(envExample).toContain(agent.envExample);
+      },
+    );
+
+    it.each(["github-issues", "beads"])(
+      "preserves %s Issue tracker substitutions with no-sandbox",
+      async (issueTrackerName) => {
+        const issueTracker = getIssueTracker(issueTrackerName)!;
+        const dir = await makeDir();
+        await runScaffold(dir, {
+          issueTracker,
+          sandboxProvider: noSandboxProvider,
+          templateName: "parallel-planner",
+        });
+
+        const prompt = (
+          await Promise.all(
+            ["plan-prompt.md", "implement-prompt.md", "merge-prompt.md"].map(
+              (filename) =>
+                readFile(join(dir, ".sandcastle", filename), "utf-8"),
+            ),
+          )
+        ).join("\n");
+        const envExample = await readFile(
+          join(dir, ".sandcastle", ".env.example"),
+          "utf-8",
+        );
+        expect(prompt).toContain(issueTracker.templateArgs.LIST_TASKS_COMMAND);
+        expect(prompt).toContain(issueTracker.templateArgs.VIEW_TASK_COMMAND);
+        expect(prompt).toContain(issueTracker.templateArgs.CLOSE_TASK_COMMAND);
+        if (issueTracker.envExample) {
+          expect(envExample).toContain(issueTracker.envExample);
+        }
+      },
+    );
 
     it("selecting podman rewrites the main file to import and call podman", async () => {
       const dir = await makeDir();
