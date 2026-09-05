@@ -853,7 +853,7 @@ export const cursor = (
     const forceFlag = dangerouslySkipPermissions ? " --force" : "";
 
     return {
-      command: `agent --print --output-format stream-json --model ${shellEscape(model)} ${forceFlag} ${shellEscape(prompt)}`,
+      command: `cursor-agent --print --output-format stream-json --model ${shellEscape(model)} ${forceFlag} ${shellEscape(prompt)}`,
     };
   },
 
@@ -861,7 +861,7 @@ export const cursor = (
     prompt,
     dangerouslySkipPermissions,
   }: AgentCommandOptions): string[] {
-    const args = ["agent", "--model", model];
+    const args = ["cursor-agent", "--model", model];
     if (dangerouslySkipPermissions) args.push("--force");
     if (prompt) args.push(prompt);
     return args;

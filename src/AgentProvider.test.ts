@@ -1028,10 +1028,10 @@ describe("cursor factory", () => {
     expect(provider).not.toHaveProperty("dockerfileTemplate");
   });
 
-  it("buildPrintCommand includes stream-json flags and model", () => {
+  it("buildPrintCommand invokes cursor-agent with stream-json flags and model", () => {
     const provider = cursor("claude-sonnet-4-6");
     const { command } = provider.buildPrintCommand(opts("do something"));
-    expect(command).toContain("--print");
+    expect(command).toMatch(/^cursor-agent --print /);
     expect(command).toContain("--output-format stream-json");
     expect(command).toContain("--force");
     expect(command).toContain("--model 'claude-sonnet-4-6'");
@@ -1060,7 +1060,7 @@ describe("cursor factory", () => {
       dangerouslySkipPermissions: true,
     });
     expect(args).toEqual([
-      "agent",
+      "cursor-agent",
       "--model",
       "claude-sonnet-4-6",
       "--force",
@@ -1074,7 +1074,12 @@ describe("cursor factory", () => {
       prompt: "",
       dangerouslySkipPermissions: true,
     });
-    expect(args).toEqual(["agent", "--model", "claude-sonnet-4-6", "--force"]);
+    expect(args).toEqual([
+      "cursor-agent",
+      "--model",
+      "claude-sonnet-4-6",
+      "--force",
+    ]);
   });
 
   // Orchestrator.invokeAgent always passes dangerouslySkipPermissions: true in print mode;
